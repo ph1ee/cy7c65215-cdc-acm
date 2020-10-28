@@ -130,6 +130,45 @@ static int acm_ctrl_msg(struct acm *acm, int request, int value,
 	return retval < 0 ? retval : 0;
 }
 
+#define CY_CLASS_INTERFACE_REQUEST_HOST_TO_DEVICE 0x21
+#define CY_UART_SET_FLOW_CONTROL_CMD 0x60
+#define CY_SET_LINE_CONTROL_STATE_CMD 0x22
+
+typedef enum _CY_FLOW_CONTROL_MODES {
+
+    CY_UART_FLOW_CONTROL_DISABLE = 0,       /*Disable Flow control*/
+    CY_UART_FLOW_CONTROL_DSR,               /*Enable DSR mode of flow control*/
+    CY_UART_FLOW_CONTROL_RTS_CTS,           /*Enable RTS CTS mode of flow control*/
+    CY_UART_FLOW_CONTROL_ALL                /*Enable RTS CTS and DSR flow control */
+
+} CY_FLOW_CONTROL_MODES;
+
+static int cypress_ctrl_msg(struct acm *acm, int request, int value,
+							void *buf, int len)
+{
+	int retval;
+
+	retval = usb_autopm_get_interface(acm->control);
+	if (retval)
+		return retval;
+
+	retval = usb_control_msg(acm->dev, usb_sndctrlpipe(acm->dev, 0),
+		request, CY_CLASS_INTERFACE_REQUEST_HOST_TO_DEVICE, value,
+		acm->control->altsetting[0].desc.bInterfaceNumber,
+		buf, len, 5000);
+
+	if (retval < 0) {
+		dev_err(&acm->control->dev,
+			"%s - rq 0x%02x, val %#x, len %#x, result %d\n",
+			__func__, request, value, len, retval);
+	}
+
+	usb_autopm_put_interface(acm->control);
+
+	return retval < 0 ? retval : 0;
+}
+
+
 /* devices aren't required to support these requests.
  * the cdc acm descriptor tells whether they do...
  */
@@ -137,6 +176,15 @@ static inline int acm_set_control(struct acm *acm, int control)
 {
 	if (acm->quirks & QUIRK_CONTROL_LINE_STATE)
 		return -EOPNOTSUPP;
+
+	if (acm->quirks & CYPRESS_USB_SERIAL) {
+		int value = control & ACM_CTRL_DTR;
+		if (control & ACM_CTRL_RTS) {
+		    value |= (1 << 1);
+		}
+
+		return cypress_ctrl_msg(acm, CY_SET_LINE_CONTROL_STATE_CMD, value, NULL, 0);
+	}
 
 	return acm_ctrl_msg(acm, USB_CDC_REQ_SET_CONTROL_LINE_STATE,
 			control, NULL, 0);
@@ -1060,6 +1108,15 @@ static void acm_tty_set_termios(struct tty_struct *tty,
 			newline.bDataBits);
 		acm_set_line(acm, &acm->line);
 	}
+
+	if (acm->quirks & CYPRESS_USB_SERIAL) {
+		if (C_CRTSCTS(tty)) {
+			cypress_ctrl_msg(acm, CY_UART_SET_FLOW_CONTROL_CMD, CY_UART_FLOW_CONTROL_RTS_CTS, NULL, 0);
+		}
+		else {
+			cypress_ctrl_msg(acm, CY_UART_SET_FLOW_CONTROL_CMD, CY_UART_FLOW_CONTROL_DISABLE, NULL, 0);
+		}
+	}
 }
 
 static const struct tty_port_operations acm_port_ops = {
@@ -1871,6 +1928,10 @@ static const struct usb_device_id acm_ids[] = {
 	},
 	{ USB_DEVICE(0x1bc7, 0x0023), /* Telit 3G ACM + ECM composition */
 	.driver_info = SEND_ZERO_PACKET,
+	},
+
+	{ USB_DEVICE(0x04b4, 0x0005), /* Cypress USB-Serial CY7C65215 */
+	.driver_info = CYPRESS_USB_SERIAL,
 	},
 
 	/* control interfaces without any protocol set */

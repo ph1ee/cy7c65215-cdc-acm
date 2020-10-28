@@ -140,3 +140,4 @@ struct acm {
 #define CLEAR_HALT_CONDITIONS		BIT(7)
 #define SEND_ZERO_PACKET		BIT(8)
 #define DISABLE_ECHO			BIT(9)
+#define CYPRESS_USB_SERIAL		BIT(10)

@@ -1384,6 +1384,12 @@ made_compressed_probe:
 	init_usb_anchor(&acm->delayed);
 	acm->quirks = quirks;
 
+	/* Cypress USB-Serial CY7C65215 */
+	if (usb_dev->descriptor.idVendor == 0x04b4 &&
+		usb_dev->descriptor.idProduct == 0x0005) {
+		acm->quirks |= CYPRESS_USB_SERIAL;
+	}
+
 	buf = usb_alloc_coherent(usb_dev, ctrlsize, GFP_KERNEL, &acm->ctrl_dma);
 	if (!buf)
 		goto err_put_port;
@@ -1970,10 +1976,6 @@ static const struct usb_device_id acm_ids[] = {
 	},
 	{ USB_DEVICE(0x1bc7, 0x0023), /* Telit 3G ACM + ECM composition */
 	.driver_info = SEND_ZERO_PACKET,
-	},
-
-	{ USB_DEVICE(0x04b4, 0x0005), /* Cypress USB-Serial CY7C65215 */
-	.driver_info = NO_UNION_NORMAL | CYPRESS_USB_SERIAL,
 	},
 
 	/* Exclude Goodix Fingerprint Reader */

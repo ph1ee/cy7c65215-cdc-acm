@@ -130,9 +130,7 @@ static int acm_ctrl_msg(struct acm *acm, int request, int value,
 	return retval < 0 ? retval : 0;
 }
 
-#define CY_CLASS_INTERFACE_REQUEST_HOST_TO_DEVICE 0x21
 #define CY_UART_SET_FLOW_CONTROL_CMD 0x60
-#define CY_SET_LINE_CONTROL_STATE_CMD 0x22
 
 typedef enum _CY_FLOW_CONTROL_MODES {
 
@@ -143,29 +141,6 @@ typedef enum _CY_FLOW_CONTROL_MODES {
 
 } CY_FLOW_CONTROL_MODES;
 
-static int cypress_ctrl_msg(struct acm *acm, int request, int value,
-							void *buf, int len)
-{
-	int retval;
-
-	retval = usb_autopm_get_interface(acm->control);
-	if (retval)
-		return retval;
-
-	retval = usb_control_msg(acm->dev, usb_sndctrlpipe(acm->dev, 0),
-		request, CY_CLASS_INTERFACE_REQUEST_HOST_TO_DEVICE, value,
-		acm->control->altsetting[0].desc.bInterfaceNumber,
-		buf, len, 5000);
-
-	dev_dbg(&acm->control->dev,
-		"%s - rq 0x%02x, val %#x, len %#x, result %d\n",
-		__func__, request, value, len, retval);
-
-	usb_autopm_put_interface(acm->control);
-
-	return retval < 0 ? retval : 0;
-}
-
 /* devices aren't required to support these requests.
  * the cdc acm descriptor tells whether they do...
  */
@@ -173,15 +148,6 @@ static inline int acm_set_control(struct acm *acm, int control)
 {
 	if (acm->quirks & QUIRK_CONTROL_LINE_STATE)
 		return -EOPNOTSUPP;
-
-	if (acm->quirks & CYPRESS_USB_SERIAL) {
-		int value = control & ACM_CTRL_DTR;
-		if (control & ACM_CTRL_RTS) {
-		    value |= (1 << 1);
-		}
-
-		return cypress_ctrl_msg(acm, CY_SET_LINE_CONTROL_STATE_CMD, value, NULL, 0);
-	}
 
 	return acm_ctrl_msg(acm, USB_CDC_REQ_SET_CONTROL_LINE_STATE,
 			control, NULL, 0);
@@ -1137,10 +1103,10 @@ static void acm_tty_set_termios(struct tty_struct *tty,
 
 	if (acm->quirks & CYPRESS_USB_SERIAL) {
 		if (C_CRTSCTS(tty)) {
-			cypress_ctrl_msg(acm, CY_UART_SET_FLOW_CONTROL_CMD, CY_UART_FLOW_CONTROL_RTS_CTS, NULL, 0);
+			acm_ctrl_msg(acm, CY_UART_SET_FLOW_CONTROL_CMD, CY_UART_FLOW_CONTROL_RTS_CTS, NULL, 0);
 		}
 		else {
-			cypress_ctrl_msg(acm, CY_UART_SET_FLOW_CONTROL_CMD, CY_UART_FLOW_CONTROL_DISABLE, NULL, 0);
+			acm_ctrl_msg(acm, CY_UART_SET_FLOW_CONTROL_CMD, CY_UART_FLOW_CONTROL_DISABLE, NULL, 0);
 		}
 	}
 }
